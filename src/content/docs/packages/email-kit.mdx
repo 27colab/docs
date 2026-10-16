@@ -1,0 +1,83 @@
+---
+title: "email-kit"
+description: "A small, dependency-free TypeScript toolkit for sending transactional email safely: retries, idempotency, suppression, EN/ES templates, attachment batching and an \"email me this\" helper for bots."
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+import quick from '../../../../samples/src/email-quickstart.ts?raw';
+import quickOut from '../../../../samples/out/email-quickstart.txt?raw';
+import resend from '../../../../samples/src/email-resend.ts?raw';
+
+<p class="source-links">Package <code>@27colab/email-kit</code> · <a href="https://github.com/27colab/email-kit">Source on GitHub</a> · MIT · Node 18+ · ESM · zero runtime dependencies</p>
+
+A small toolkit for sending transactional email *safely*: a provider-agnostic send interface, a Resend adapter, retries, idempotency, suppression-list checks, EN/ES templates, attachment batching, and an “email me this” helper for chat and voice bots.
+
+<Aside type="caution" title="Not for you if…">
+- You want to replace Nodemailer, React Email or a full ESP SDK. There is no SMTP, no MJML, no queue and no inbound parsing.
+- You need more than one real provider out of the box. Resend (over plain `fetch`) is the only one; another is one class implementing `EmailProvider`.
+- You need something audited. It is pre-1.0, the API may change, and it is not audited for production use. About 600 lines you can read in ten minutes, so do.
+</Aside>
+
+It is a reference implementation of the boring parts around sending, extracted from patterns used in the author's own projects and rewritten clean. See the repository's `SCOPE.md` for what was and was not carried over.
+
+## Install
+
+```sh
+npm install @27colab/email-kit
+```
+
+## Bring your own keys
+
+A Resend API key (`RESEND_API_KEY`) and a verified sending domain. Sending from your own domain needs SPF, DKIM and DMARC records; your provider generates the DKIM values (for Resend: Domains in the dashboard). Until a domain is verified, most providers only deliver to the account owner. This library does not manage DNS.
+
+## Run it without keys
+
+`FakeProvider` records an outbox and can fail on demand. This sample sends a localized template through two simulated transient failures, shows dedupe, a suppression refusal and the “email me this” flow.
+
+<Code code={quick} lang="ts" title="samples/src/email-quickstart.ts" />
+
+<Code code={quickOut} lang="text" frame="terminal" title="output" />
+
+The two simulated failures plus the successful attempt make three provider calls but only one recorded email, and the repeated send did not add another.
+
+## With Resend
+
+**Needs a key.** Typechecked, not executed.
+
+<Code code={resend} lang="ts" title="samples/src/email-resend.ts" />
+
+### What `send` does, in order
+
+1. Validates the address and that there is content.
+2. Refuses if the recipient is on the suppression list (`EmailRefusedError`, reason `suppressed`). Bypass is explicit per call.
+3. Derives (or accepts) an **idempotency key** and returns the earlier result if one exists; the key is also sent to the provider (`Idempotency-Key` for Resend).
+4. Calls the provider with **retry**: exponential backoff with jitter, `Retry-After` honored, only for errors flagged `retryable` (Resend: network errors, 429, 5xx).
+
+The default idempotency store is in-memory, so it dedupes within one process. Pass your own `IdempotencyStore` (Redis, a database table) to dedupe across restarts. Identical content to the same recipient dedupes by default; pass `idempotencyScope` (such as an order id) when you legitimately resend the same text.
+
+### “Email me this” for bots
+
+`createEmailMeThis(mailer)` returns a function that sends only to the address the user gave for themselves, only after a confirmed read-back, and at most once per `requestId`. `parseSpokenEmail` understands “dot / at / dash / underscore / plus” and Spanish “punto / arroba / guion / guion bajo / más”, and returns `undefined` for anything invalid so you re-prompt rather than guess.
+
+## API overview
+
+| Export | Purpose |
+|---|---|
+| `createMailer({ provider, from, suppression?, idempotencyStore?, retry? })` | `send(message, options?)`, `sendTemplate(template, to, vars, { locale })` |
+| `ResendProvider({ apiKey })`, `EmailProvider` | The one real provider; the interface for others |
+| `defineTemplate`, `renderTemplate`, `resolveLocale` | Typed templates with EN/ES (any locale) and safe HTML escaping; `es-MX` falls back to `es` |
+| `MemorySuppressionList`, `SuppressionList`, `unsubscribeHeaders` | Suppression and `List-Unsubscribe` headers |
+| `deriveIdempotencyKey`, `MemoryIdempotencyStore`, `IdempotencyStore` | Idempotency |
+| `withRetry`, `isRetryable` | Backoff helpers |
+| `batchAttachments(files, { maxBytes, maxCount })` | Returns `{ batches, oversized }`; oversized files are returned, never silently dropped |
+| `parseSpokenEmail`, `spellOut`, `createEmailMeThis` | Bot helpers |
+| `FakeProvider` (`@27colab/email-kit/testing`) | In-memory provider: `outbox`, `failNext(n)`, `calls` |
+
+You host the unsubscribe endpoint and call `suppression.add(address, 'unsubscribed')` from it.
+
+## Limits
+
+- **In-memory defaults.** Suppression and idempotency are per-process until you supply your own stores.
+- **One real provider**, with message shapes following Resend's public documentation at the time of writing; it is not exercised against the live API in CI.
+- **Pre-1.0 and unaudited.** Review it before you rely on it.
+- **No deliverability management.** DNS records, warm-up and reputation are yours.

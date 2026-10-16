@@ -1,0 +1,5 @@
+history sent to the model on the next turn:
+  user      "Do you have any openings this week?"
+  assistant "We have openings Monday morning, [interrupted]"
+  user      "Actually, never mind, thanks"
+call ended (caller_hangup); barge-ins: 1

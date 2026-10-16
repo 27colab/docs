@@ -1,0 +1,11 @@
+:root { --sl-color-accent-low: #e0e7ff; --sl-color-accent: #4f46e5; --sl-color-accent-high: #3730a3; }
+:root[data-theme='dark'] { --sl-color-accent-low: #1e1b4b; --sl-color-accent: #818cf8; --sl-color-accent-high: #c7d2fe; }
+.package-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; margin-block: 1.5rem; }
+.package-grid > div { border: 1px solid var(--sl-color-hairline); border-radius: .5rem; padding: 1rem 1.25rem; background: var(--sl-color-bg-nav); }
+.package-grid h3 { margin-top: 0; font-size: var(--sl-text-lg); }
+.package-grid p { font-size: var(--sl-text-sm); margin-block: .5rem; }
+.arch-figure { margin-block: 1.5rem; }
+.arch-figure svg { width: 100%; height: auto; }
+.arch-figure figcaption { font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); margin-top: .5rem; }
+.site-footer { border-top: 1px solid var(--sl-color-hairline); margin-top: 2rem; padding-top: 1rem; font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); }
+.source-links { font-size: var(--sl-text-sm); }

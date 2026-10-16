@@ -1,0 +1,78 @@
+---
+title: "27 Colab Open Source"
+description: "Small, tested TypeScript reference implementations for voice, SMS consent, Instagram DMs, email, QuickBooks Online and Florida parcel lookups. Docs, runnable examples and honest limits."
+template: splash
+hero:
+  tagline: Small, tested reference implementations for the fiddly parts of building an assistant that talks, texts and emails. Read them, borrow from them, or use them as a starting point.
+  actions:
+    - text: Pick a package
+      link: '#the-packages'
+      icon: right-arrow
+    - text: Assemble an assistant
+      link: /guides/assemble/
+      variant: minimal
+---
+
+import { Aside, Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## What these are
+
+Six MIT-licensed TypeScript packages. Each one is a **compact, dependency-light reference implementation** of a handful of mechanisms that are easy to get subtly wrong, with tests that pin their behavior and an in-memory fake so you can run everything without accounts or keys.
+
+They are **not** frameworks, hosted services or products, and none of them claims to be better than the established tools in its area. Several have well-known alternatives, and each package page says so.
+
+<Aside type="note" title="What “tested” means here">
+Every package has an offline test suite that runs against its own fakes. The adapters for real third-party services (Twilio, Deepgram, ElevenLabs, Anthropic, Meta, Intuit, Resend, county GIS services) follow those vendors' public documentation at the time of writing and are **not** exercised in CI. The code samples on this site are typechecked against the packages, and the keyless ones are run, on every change. See [how samples are verified](/guides/verified-samples/).
+</Aside>
+
+## Who this is for
+
+- Developers who are about to write the same plumbing (webhook signature checks, consent ledgers, token rotation, barge-in handling) and want a small, readable implementation to compare against.
+- People evaluating this work: every package is short enough to read in one sitting.
+- Teams that want a starting point they can fork, not a dependency they must trust blindly.
+
+## The packages
+
+<div class="package-grid">
+  <div>
+    <h3><a href="/packages/voice-engine/">voice-engine</a></h3>
+    <p>Turn-taking for a real-time phone agent: know what the caller actually heard when they interrupt.</p>
+    <p><strong>Not for you if</strong> you want a full voice-agent platform. Vapi, Retell, LiveKit Agents and Pipecat exist.</p>
+  </div>
+  <div>
+    <h3><a href="/packages/sms-consent/">sms-consent</a></h3>
+    <p>STOP/START keyword handling, a consent state machine and a send guard that never reports a phantom send.</p>
+    <p><strong>Not for you if</strong> you need legal assurance. It is not legal advice and makes no compliance guarantee.</p>
+  </div>
+  <div>
+    <h3><a href="/packages/instagram-dm/">instagram-dm</a></h3>
+    <p>Webhook verification, event parsing, OAuth, a window-aware Send API client and a fake Graph API.</p>
+    <p><strong>Not for you if</strong> you want a chatbot framework or an official Meta SDK.</p>
+  </div>
+  <div>
+    <h3><a href="/packages/email-kit/">email-kit</a></h3>
+    <p>Safe transactional sending: retries, idempotency, suppression, EN/ES templates, an “email me this” helper.</p>
+    <p><strong>Not for you if</strong> you need SMTP, MJML, queues or inbound parsing.</p>
+  </div>
+  <div>
+    <h3><a href="/integrations/quickbooks-online-kit/">quickbooks-online-kit</a></h3>
+    <p>QuickBooks Online OAuth with refresh-token rotation, a typed client for common operations, audit log.</p>
+    <p><strong>Not for you if</strong> you need reports, batch, change data capture or the Payments API.</p>
+  </div>
+  <div>
+    <h3><a href="/integrations/fl-parcel-lookup/">fl-parcel-lookup</a></h3>
+    <p>Folio number and legal description from an address for Miami-Dade, Broward and Palm Beach.</p>
+    <p><strong>Not for you if</strong> you need a source of truth for legal filings, or any other county.</p>
+  </div>
+</div>
+
+## Start somewhere
+
+<CardGrid>
+  <LinkCard title="Which package do I need?" description="A short chooser and the honest 'not for you if' list." href="/guides/choosing/" />
+  <LinkCard title="Assemble your own assistant" description="Voice, SMS, Instagram and email around your own agent code. Includes a keyless loopback demo." href="/guides/assemble/" />
+</CardGrid>
+
+## Bring your own everything
+
+None of these packages ships a prompt, an account or a key. You supply the provider accounts (Twilio, Deepgram, ElevenLabs, Anthropic, Meta, Intuit, Resend) and the agent logic. The packages handle the mechanics in between.

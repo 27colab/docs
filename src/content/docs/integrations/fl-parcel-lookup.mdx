@@ -1,0 +1,81 @@
+---
+title: "fl-parcel-lookup"
+description: "Look up a Florida parcel's folio number and legal description from an address for Miami-Dade, Broward and Palm Beach, using each county's public ArcGIS services."
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+import local from '../../../../samples/src/parcel-lookup.ts?raw';
+import localOut from '../../../../samples/out/parcel-lookup.txt?raw';
+import live from '../../../../samples/src/parcel-live.ts?raw';
+
+<p class="source-links">Package <code>@27colab/fl-parcel-lookup</code> · <a href="https://github.com/27colab/fl-parcel-lookup">Source on GitHub</a> · MIT · Node 18+ · ESM · zero runtime dependencies</p>
+
+Look up a Florida parcel's **folio number and legal description** from an address, for **Miami-Dade, Broward and Palm Beach**, using each county's public ArcGIS services. The effort is not the HTTP call. Each county stores the same street address differently (`NW 7 ST` vs `NW 7TH ST` vs `NW 58th AVE`, units appended or not, a ZIP that is sometimes the owner's mailing ZIP), so a Google Places address rarely matches as typed. This package turns a Places result into the spellings each county uses, queries safely, and tells you when the answer is ambiguous.
+
+<Aside type="caution" title="Not for you if…">
+- The result goes on a legal filing unchecked. It is a **pre-fill, not a source of truth**: property appraiser records are not title. Confirm against the recorded deed or a title search.
+- You need a county other than Miami-Dade, Broward or Palm Beach. Others get a typed `UnsupportedCountyError`; adding one means implementing `CountyProvider` (about 100 lines).
+- You want a data product. This is a thin, careful client over public county data and is only as complete and correct as the counties' open-data layers.
+- You want owner search. There is none, on purpose.
+</Aside>
+
+Not affiliated with any county or appraiser. Data is provided by them “as is”.
+
+## Install
+
+```sh
+npm install @27colab/fl-parcel-lookup
+```
+
+## Bring your own keys
+
+**None.** The county services need no key or login, and no Google API key is used here: you get the Places result in your own app (browser or server) and pass it in. A plain comma-separated address string works too.
+
+## Run it without a network
+
+`normalizeAddress` is pure. The second half injects a stub `fetch` shaped like a county response (invented data), so the whole lookup path runs offline.
+
+<Code code={local} lang="ts" title="samples/src/parcel-lookup.ts" />
+
+<Code code={localOut} lang="text" frame="terminal" title="output" />
+
+Notice that each county gets its own preferred spelling first (`7` for Miami-Dade, `7TH` for Palm Beach) and the alternate second.
+
+## Against the real services
+
+**Needs network access** to the counties' public services. Typechecked, not executed in CI by this docs repo (the package has its own opt-in live test suite).
+
+<Code code={live} lang="ts" title="samples/src/parcel-live.ts" />
+
+## API overview
+
+- **`lookupByAddress(input, options?)`** → `ParcelRecord | null`. `input` is a Google place (`address_components` or the newer `addressComponents`) or a string. The county is detected from the Places county component, then an explicit “X County”, then a table of well-known cities; pass `{ county }` to skip detection.
+- **`lookupByFolio(folio, options?)`**: dashes and spaces accepted; the county is inferred from the folio shape (13 digits Miami-Dade, 17 Palm Beach, 12 alphanumerics Broward) or passed explicitly.
+- **`searchByAddress(input, options?)`** → every distinct parcel on the street line (all units of a condo).
+- **`normalizeAddress(input, { county? })`**: parsed pieces plus `search`, the street lines per county. Throws `InvalidAddressError` or `UnsupportedCountyError`.
+- **`createClient(defaults)`**: `fetch`, `timeoutMs`, `retries`, `signal`, `userAgent`, `includeOwner`, `includeLegal`, `zip`, `unitFallback`, `maxResults`, `providers`.
+- **`detectCounty`, `detectCountyFromFolio`, `formatFolio`**.
+
+How to read the result:
+
+| Situation | Result |
+|---|---|
+| One parcel matches | `ambiguous: false` |
+| Condo building, no unit given | first unit, `ambiguous: true`, `candidates: n`; use `searchByAddress` for all |
+| Unit given and found | `unitMatched: true` |
+| Unit given, not found | `null`, or with `{ unitFallback: true }` the building-level match with `unitMatched: false` |
+| Nothing | `null` |
+
+Errors extend `ParcelLookupError` with a `code` and a `retryable` flag: `InvalidAddressError`, `InvalidFolioError`, `UnsupportedCountyError`, `TimeoutError`, `NetworkError`, `HttpError`, `ServiceError`, `BadResponseError`, `AbortedError`.
+
+## Privacy
+
+Owner names and mailing details are public record but are still personal data. **Owner names are off by default**: unless you pass `includeOwner: true` the owner fields are not requested. The library never logs, errors carry only the service URL without its query, mailing addresses are never read, and there is no search by owner. If you store owner names, retention and use are yours to decide.
+
+## Limits
+
+- **Endpoint drift is the main maintenance risk.** Counties re-publish and rename services without notice. The package dates its endpoints in `docs/endpoints.md` and has a weekly live check that fails when a field disappears, but a break can precede the fix.
+- **Broward** uses two services (address points for the folio, tax roll for legal and owner), and its address points do not cover every building, so `null` there can mean “no address point”.
+- **Known address gaps:** fractional numbers (`100 1/2 Main St`) are passed through unverified; city detection relies on a hand-kept table; no handling of `Avenue of the …`-style names, intersections or PO boxes.
+- Matching is a prefix `LIKE` plus an exact client-side check, so `1 NW 7 ST` does not match `11 NW 7 ST`.
+- Issues are triaged when time allows.

@@ -1,0 +1,47 @@
+---
+// Hand-written SVG so it follows the site's light/dark theme (no client JS, no diagram library).
+const cols = [
+  { x: 10, pkg: 'voice-engine', sub: 'turn-taking, barge-in,', sub2: 'Twilio Media Streams', ext: 'Twilio · Deepgram', ext2: 'ElevenLabs · Anthropic', link: 'executeTool · system · greeting' },
+  { x: 205, pkg: 'sms-consent', sub: 'keywords, consent state,', sub2: 'send guard', ext: 'Twilio SMS API', ext2: '(or any provider)', link: 'sendGuarded · handleInbound' },
+  { x: 400, pkg: 'instagram-dm', sub: 'webhook, send API,', sub2: '24-hour window', ext: 'Meta Graph API', ext2: '(Instagram Login)', link: 'onMessage(ctx)' },
+  { x: 595, pkg: 'email-kit', sub: 'retry, idempotency,', sub2: 'suppression, templates', ext: 'Resend', ext2: '(or your own provider)', link: 'send · emailMeThis' },
+];
+const w = 185;
+---
+
+<figure class="arch-figure">
+  <svg viewBox="0 0 800 440" role="img" aria-labelledby="arch-title arch-desc" xmlns="http://www.w3.org/2000/svg">
+    <title id="arch-title">Architecture of an assistant built from four packages</title>
+    <desc id="arch-desc">
+      Four packages (voice-engine, sms-consent, instagram-dm, email-kit) each connect upward to a provider you
+      supply keys for, and downward to your own agent code, which holds the prompt, tools and business rules.
+    </desc>
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0 0 L10 5 L0 10 z" fill="var(--sl-color-gray-3)" />
+      </marker>
+    </defs>
+    {cols.map((c) => (
+      <g>
+        <rect x={c.x} y="14" width={w} height="62" rx="8" fill="none" stroke="var(--sl-color-gray-3)" stroke-dasharray="5 4" />
+        <text x={c.x + w / 2} y="40" text-anchor="middle" font-size="13" fill="var(--sl-color-text)">{c.ext}</text>
+        <text x={c.x + w / 2} y="59" text-anchor="middle" font-size="13" fill="var(--sl-color-text)">{c.ext2}</text>
+        <line x1={c.x + w / 2} y1="78" x2={c.x + w / 2} y2="116" stroke="var(--sl-color-gray-3)" stroke-width="1.5" marker-end="url(#arr)" marker-start="url(#arr)" />
+        <text x={c.x + w / 2 + 8} y="102" font-size="11" fill="var(--sl-color-gray-3)">your keys</text>
+        <rect x={c.x} y="120" width={w} height="86" rx="8" fill="var(--sl-color-accent-low)" stroke="var(--sl-color-accent)" stroke-width="1.5" />
+        <text x={c.x + w / 2} y="150" text-anchor="middle" font-size="16" font-weight="700" fill="var(--sl-color-white)">{c.pkg}</text>
+        <text x={c.x + w / 2} y="173" text-anchor="middle" font-size="12" fill="var(--sl-color-text)">{c.sub}</text>
+        <text x={c.x + w / 2} y="190" text-anchor="middle" font-size="12" fill="var(--sl-color-text)">{c.sub2}</text>
+        <line x1={c.x + w / 2} y1="208" x2={c.x + w / 2} y2="268" stroke="var(--sl-color-gray-3)" stroke-width="1.5" marker-end="url(#arr)" marker-start="url(#arr)" />
+        <text x={c.x + w / 2} y="244" text-anchor="middle" font-size="11" fill="var(--sl-color-gray-2)" paint-order="stroke" stroke="var(--sl-color-bg)" stroke-width="4">{c.link}</text>
+      </g>
+    ))}
+    <rect x="10" y="272" width="770" height="96" rx="10" fill="none" stroke="var(--sl-color-white)" stroke-width="2" />
+    <text x="395" y="304" text-anchor="middle" font-size="17" font-weight="700" fill="var(--sl-color-white)">Your agent code</text>
+    <text x="395" y="330" text-anchor="middle" font-size="13" fill="var(--sl-color-text)">system prompt · model choice · tool definitions and executors · business rules</text>
+    <text x="395" y="351" text-anchor="middle" font-size="13" fill="var(--sl-color-text)">storage for consent, tokens and call records</text>
+    <text x="10" y="402" font-size="12" fill="var(--sl-color-gray-3)">Dashed: third-party services you hold accounts and keys for.  Filled: the packages (small, tested, no hosted service).</text>
+    <text x="10" y="422" font-size="12" fill="var(--sl-color-gray-3)">Solid outline: the part that is yours. The packages never see your prompt.</text>
+  </svg>
+  <figcaption>The packages handle the mechanics between your providers and your agent; the agent itself stays yours.</figcaption>
+</figure>

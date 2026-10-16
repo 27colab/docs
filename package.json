@@ -1,0 +1,29 @@
+{
+  "name": "docs-27colab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Docs hub for the 27 Colab open-source packages (docs.27colab.com). Astro Starlight, static output.",
+  "engines": {
+    "node": ">=20.3"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "samples:install": "npm --prefix samples install",
+    "samples:typecheck": "npm --prefix samples run typecheck",
+    "samples:run": "npm --prefix samples run run-all",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name docs-27colab"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.34.0",
+    "astro": "^5.7.0",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "starlight-links-validator": "^0.15.0",
+    "typescript": "^5.6.0",
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,4 @@
+# Cloudflare Pages project config. See DEPLOY.md.
+name = "docs-27colab"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "./dist"

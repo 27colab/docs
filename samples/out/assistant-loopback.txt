@@ -1,0 +1,8 @@
+call 1 -> SMS: [ 'Acme Dental: you are booked for Tue 3pm. Reply STOP to opt out.' ]
+call 1 -> email to: [ 'jane.doe@example.com' ]
+inbound STOP -> opted_out
+call 2 -> SMS sent: 0
+call 2 -> what the model was told: [{"type":"tool_result","tool_use_id":"tool_1","content":"Text NOT sent (opted_out). Do not tell the caller it was sent.","is_error":true}]
+instagram reply: [
+  'Acme Dental: thanks for writing ("Can I move my visit?"). A teammate will confirm your visit.'
+]

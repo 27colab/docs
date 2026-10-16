@@ -1,0 +1,9 @@
+3 provider calls; Bienvenido
+emails recorded: 1
+refused: suppressed
+{
+  status: 'needs-confirmation',
+  readBack: 'j a n e dot d o e at e x a m p l e dot c o m'
+}
+sent
+sent again; outbox: 2

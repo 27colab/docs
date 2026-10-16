@@ -1,0 +1,103 @@
+---
+title: "Assemble your own assistant"
+description: "How voice-engine, sms-consent, instagram-dm and email-kit fit around your own agent code and prompt, with an architecture diagram and a keyless loopback demo."
+---
+
+import { Aside, Code, Steps } from '@astrojs/starlight/components';
+import Architecture from '../../../components/Architecture.astro';
+import agent from '../../../../samples/src/assistant/agent.ts?raw';
+import loopback from '../../../../samples/src/assistant/loopback.ts?raw';
+import loopbackOut from '../../../../samples/out/assistant-loopback.txt?raw';
+import live from '../../../../samples/src/assistant/live.ts?raw';
+
+This guide shows one way to put four of the packages around **your own agent**: a phone line, SMS follow-ups that respect consent, Instagram DMs, and email. The agent is yours. The prompt, model choice, tools and business rules never pass through a package. The packages handle the mechanics at the edges.
+
+<Aside type="caution" title="What this is, and is not">
+This is a worked example of wiring, not a product, a template you should deploy as is, or a compliance recipe. It uses the packages' in-memory fakes for the demo and assumes you understand your own consent, privacy and platform-policy obligations.
+</Aside>
+
+## The shape
+
+<Architecture />
+
+| Layer | You provide | A package provides |
+|---|---|---|
+| Phone | Twilio number, Deepgram, ElevenLabs and Anthropic accounts and keys | `voice-engine`: Media Streams transport, mark-confirmed playback, barge-in history rewrite, speculative turns |
+| SMS | An SMS provider call, a database for consent | `sms-consent`: keyword handling, consent ledger, `sendGuarded` |
+| Instagram | A Meta app, App Review where needed, token storage | `instagram-dm`: signature checks, dedupe, window-aware Send API client |
+| Email | A Resend key and verified domain | `email-kit`: retry, idempotency, suppression, “email me this” |
+| The assistant | System prompt, tools, model, rules, storage | nothing. This is the part you own. |
+
+## 1. Write the agent: prompt, tools, and guarded side effects
+
+The most useful pattern in this wiring is that **tools call the guards, and tell the model the truth**. `sendGuarded` only reports `sent: true` when the guard allowed the send and the provider resolved, so the tool result can say “not sent” and the model should not claim otherwise.
+
+<Code code={agent} lang="ts" title="samples/src/assistant/agent.ts" />
+
+Two things to notice:
+
+- The caller's phone number is passed in by your code (`makeExecutor(deps, callerPhone)`), not chosen by the model. The “email me this” helper likewise can only send to the address the user gave for themselves.
+- The tool result for a refused text says `Text NOT sent (opted_out)`. That is what the model sees on the next turn.
+
+## 2. Run it with no keys
+
+This script wires `voice-engine` (fake transport, speech-to-text, text-to-speech and a scripted model), `sms-consent`, `email-kit` (fake provider) and `instagram-dm` (fake Graph API) around the agent above. It:
+
+<Steps>
+
+1. Runs a call for a caller who opted in on a web form; the scripted model calls the text and email tools.
+2. Delivers an inbound `STOP` through `handleInbound`, as your SMS webhook would.
+3. Runs a second call; the same text tool call is now refused, and the model is told so.
+4. Sends a signed Instagram webhook through the real handler and shows the reply.
+
+</Steps>
+
+<Code code={loopback} lang="ts" title="samples/src/assistant/loopback.ts" />
+
+Recorded output of that run:
+
+<Code code={loopbackOut} lang="text" frame="terminal" title="output" />
+
+To run it yourself from a checkout of the docs repository:
+
+```sh
+npm run samples:install
+npm --prefix samples run loopback
+```
+
+<Aside type="note">
+The model here is scripted (`FakeChat`), so this shows the plumbing, not how a real model behaves. The text-to-speech and speech-to-text are fakes too. Nothing was measured: no latency, quality or reliability claims come from this demo.
+</Aside>
+
+## 3. Swap in real providers
+
+**Needs keys.** Typechecked, not executed. You supply every key: Twilio, Deepgram, ElevenLabs, Anthropic and Resend. The agent file does not change; only the dependencies handed to it do.
+
+<Code code={live} lang="ts" title="samples/src/assistant/live.ts" />
+
+In your Twilio TwiML, pass the caller's number to the stream so the tools know who is calling:
+
+```xml
+<Response>
+  <Connect>
+    <Stream url="wss://YOUR-HOST/media">
+      <Parameter name="from" value="{{From}}" />
+    </Stream>
+  </Connect>
+</Response>
+```
+
+Then wire the other entry points to the same stores:
+
+- **Inbound SMS** → `handleTwilioInbound` (see [sms-consent](/packages/sms-consent/)) with the same `SqliteConsentStore`, so STOP on any channel your ledger sees is honored by every later send.
+- **Instagram** → `createWebhookHandler` (see [instagram-dm](/packages/instagram-dm/)) with your conversation handler calling the same agent core.
+- **Unsubscribe links** → an endpoint you host that calls `suppression.add(address, 'unsubscribed')`.
+
+## What to decide before you ship anything like this
+
+- **Consent is your responsibility.** `sms-consent` records and enforces what you tell it. How consent was collected, what registrations your messaging traffic needs, and what your jurisdiction requires are outside the package, and nothing here is legal advice.
+- **Disclose automation** where the platform or the law requires it, on calls, texts and DMs.
+- **Persistence.** The demo uses in-memory stores. Consent, tokens, idempotency keys and suppression lists need durable storage in anything real.
+- **Single process.** `voice-engine` keeps call state in memory. There is no reconnect or resumption.
+- **Provider drift.** The live adapters follow vendor docs at the time of writing and are not tested against the live services in CI.
+- **Business integrations.** For accounting and property data, see [quickbooks-online-kit](/integrations/quickbooks-online-kit/) and [fl-parcel-lookup](/integrations/fl-parcel-lookup/); they plug in as more tools in the same executor.

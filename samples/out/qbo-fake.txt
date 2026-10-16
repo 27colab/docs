@@ -1,0 +1,4 @@
+connected: true sandbox
+second conversion: ALREADY_INVOICED
+invoice total 300
+true refreshes: 1

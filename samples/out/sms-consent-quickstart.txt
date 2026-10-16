@@ -1,0 +1,20 @@
+{
+  sent: false,
+  reason: 'no_consent',
+  detail: 'No consent on record; send an opt-in request first.'
+}
+opted_in
+{ sent: true }
+{
+  sent: false,
+  reason: 'quiet_hours',
+  detail: 'Inside recipient quiet hours.',
+  retryAt: 2026-03-11T12:00:00.000Z
+}
+STOP opted_out
+{
+  sent: false,
+  reason: 'opted_out',
+  detail: 'Recipient opted out; only START re-enables messaging.'
+}
+provider calls: 2

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 9 * * 1' # weekly: catches rotted external links
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and check links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `astro build` also runs starlight-links-validator: it fails on broken internal links and anchors.
+      - run: npm run build
+      - name: Check external links in the built site
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config lychee.toml --no-progress --root-dir "${{ github.workspace }}/dist" './dist/**/*.html'
+          fail: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: dist
+          retention-days: 7
+
+  samples:
+    name: Typecheck and run code samples
+    runs-on: ubuntu-latest
+    steps:
+      # The samples depend on the packages by relative path (file:../../<pkg>), so lay them out as siblings.
+      - uses: actions/checkout@v4
+        with:
+          path: oss-docs
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/voice-engine, path: voice-engine }
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/sms-consent, path: sms-consent }
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/instagram-dm, path: instagram-dm }
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/email-kit, path: email-kit }
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/quickbooks-online-kit, path: quickbooks-online-kit }
+      - uses: actions/checkout@v4
+        with: { repository: 27colab/fl-parcel-lookup, path: fl-parcel-lookup }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the packages
+        run: |
+          for p in voice-engine sms-consent instagram-dm email-kit quickbooks-online-kit fl-parcel-lookup; do
+            (cd "$p" && npm ci && npm run build)
+          done
+      - name: Install samples
+        working-directory: oss-docs/samples
+        run: npm install
+      - name: Typecheck every sample
+        working-directory: oss-docs/samples
+        run: npm run typecheck
+      - name: Run the keyless samples
+        working-directory: oss-docs/samples
+        run: npm run run-all
+      - name: Recorded outputs must match what the pages show
+        working-directory: oss-docs
+        run: git diff --exit-code -- samples/out

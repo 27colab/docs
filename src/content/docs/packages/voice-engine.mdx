@@ -1,0 +1,107 @@
+---
+title: "voice-engine"
+description: "A small, tested TypeScript reference for the turn-taking part of a real-time phone agent: Twilio mark-confirmed playback, barge-in history rewrite and speculative turns."
+---
+
+import { Aside, Code, Steps } from '@astrojs/starlight/components';
+import loopback from '../../../../samples/src/voice-loopback.ts?raw';
+import loopbackOut from '../../../../samples/out/voice-loopback.txt?raw';
+import live from '../../../../samples/src/voice-live.ts?raw';
+
+<p class="source-links">Package <code>@27colab/voice-engine</code> · <a href="https://github.com/27colab/voice-engine">Source on GitHub</a> · MIT · Node 20+ · ESM</p>
+
+A small, tested TypeScript reference for the turn-taking part of a real-time phone agent: knowing **what the caller actually heard** when they interrupt, and not talking over them.
+
+<Aside type="caution" title="Not for you if…">
+- You want a complete voice-agent platform. Vapi, Retell, LiveKit Agents and Pipecat already ship barge-in; this is a compact implementation of the few mechanisms that are easy to get subtly wrong, not a replacement.
+- You need latency or quality numbers. Nothing here has been benchmarked, and the offline fakes answer instantly.
+- You need multi-tenant routing, persistence, metering, prompt assembly or telephony provisioning. None of that is included.
+</Aside>
+
+## What it does
+
+| Mechanism | The problem it solves |
+|---|---|
+| **Mark-confirmed playback** | Sending audio is not playing audio. Every chunk is followed by a Twilio `mark`; only echoed marks count as heard. |
+| **Unspoken text from TTS alignment** | Maps “confirmed N ms played” to a text prefix using per-character timings (multi-chunk, Spanish accents, NFC/NFD, emoji, word-boundary snapping). |
+| **History rewrite on barge-in** | The model's next prompt shows `"We have openings Monday [interrupted]"`, not a sentence it never finished saying. |
+| **Backchannel vs interruption** | “uh-huh” and “sí claro” do not cut the agent off; a real utterance does. The classifier is pluggable. |
+| **Speculative turn start** | Start the LLM on Deepgram Flux `EagerEndOfTurn`; cancel on `TurnResumed` (restoring history); keep the reply if the final transcript matches. |
+| **Latency timeline** | Per-call events and per-turn distributions (p50/p90) in the `CallRecord`. |
+| **Twilio Media Streams transport** | `start`/`media`/`mark`/`stop` in, `media`/`mark`/`clear` out, over a structural socket type (no `ws` import in core). |
+
+## Install
+
+```sh
+npm install @27colab/voice-engine
+```
+
+`@anthropic-ai/sdk` and `ws` are **optional peer dependencies**: install them only if you use the Anthropic adapter or run a WebSocket server.
+
+## Bring your own keys
+
+The engine itself needs nothing. The live provider adapters need your own accounts:
+
+| Variable | Used by |
+|---|---|
+| `DEEPGRAM_API_KEY` | Deepgram Flux speech-to-text adapter |
+| `ELEVENLABS_API_KEY`, a voice id | ElevenLabs text-to-speech adapter (any voice id; per-language voice selection) |
+| `ANTHROPIC_API_KEY` | Anthropic Messages chat adapter |
+| A Twilio number with TwiML streaming to your `wss://` URL | Transport. Twilio credentials are not read by this package. |
+
+## Run it without keys
+
+The loopback script plays one scripted call against the fakes: a greeting, a question, a long answer, and a caller who talks over it after about two seconds of audio were confirmed played.
+
+<Code code={loopback} lang="ts" title="samples/src/voice-loopback.ts" />
+
+Output (recorded from a real run of this file):
+
+<Code code={loopbackOut} lang="text" frame="terminal" title="output" />
+
+The assistant turn is stored as `"We have openings Monday morning, [interrupted]"`: only the part the caller heard, with a marker, rather than the full sentence the model had planned.
+
+## Quickstart with real providers
+
+**Needs keys.** Typechecked against the package; not executed in CI.
+
+<Code code={live} lang="ts" title="samples/src/voice-live.ts" />
+
+Point a Twilio number at TwiML that streams to this server (the URL must be `wss://`; use a tunnel for local development):
+
+```xml
+<Response><Connect><Stream url="wss://YOUR-HOST/media" /></Connect></Response>
+```
+
+To pass the caller's number to your tools, add `<Parameter name="from" value="{{From}}"/>` inside `<Stream>`; it arrives as `start.customParameters`. The repository's own `examples/live-twilio.ts` is a demo, not a deployable server: no auth, no signature validation, no concurrency limits.
+
+## API overview
+
+**Entry points** (`@27colab/voice-engine`)
+
+- `createCallSession(deps, info, hooks, config)` returns a session with `start()` and `end(reason)`. `deps` is `{ transport, sttFactory, ttsFactory, chat }`; `hooks.onEnd(record, reason)` receives a `CallRecord` (transcript, stats, events).
+- `TwilioMediaTransport(ws)` with `await transport.started` giving `streamSid`, `callSid`, `customParameters`.
+- `CallSessionConfig`: `languages`, `languagePolicy` (`'fixed'` or `'follow-caller'`), `greeting`, `system` (string or function of language), `llm`, `tools` and `executeTool` (a tool result may set `endCall: true`), `voice`, `stt`, `maxCallSeconds`, `turnTaking` (`speculative`, `bargeInMinWords`, `classify`, `playbackPaddingMs`).
+
+**Interfaces** (all in `interfaces.ts`): `MediaTransport`, `SttFactory`/`SttStream`, `TtsFactory`/`TtsStream`, `ChatEngine`. Implement them to swap any provider.
+
+**Building blocks, usable on their own:** `splitAtPlayedMs`, `computeSpokenText`, `AlignmentAccumulator`, `PlaybackTracker`, `rewriteOnBargeIn`, `classifyUtterance`, `detectLang`, `CallTimeline`, `selectVoice`.
+
+**Adapters** (`@27colab/voice-engine/providers`): `createDeepgramFluxFactory`, `createElevenLabsFactory`, `createAnthropicChat`.
+
+**Fakes** (`@27colab/voice-engine/testing`): `FakeTransport` (`confirmPlayedMs(ms)`, Twilio-style mark echo on `clear`), `FakeStt` (`emitEagerEndOfTurn`, `emitTurnResumed`, `emitEndOfTurn`), `FakeTts` (deterministic alignment), `FakeChat` (scripted turns and tool calls, optional `gate` to simulate latency).
+
+## Limits
+
+- **`playedMs` is a lower bound.** It advances only at echoed marks, so resolution is the TTS chunk size. The rewrite errs toward “heard less”, never more.
+- **Alignment assumptions are unverified against the live API.** Fields are read as ElevenLabs `chars` / `charStartTimesMs` / `charDurationsMs`; chunk timestamps may be chunk-relative or cumulative and a heuristic handles both. Verify against your account. Providers that rewrite text inside the alignment (such as number expansion) will mis-map.
+- **Without alignment** the session falls back to a crude fixed ~15 chars/s estimate.
+- **Buffer-then-speak.** Each agent turn is synthesized as one utterance; sentence-by-sentence streaming TTS is not implemented.
+- **Speculation trade-off.** A speculative reply can begin speaking before the final end-of-turn; if cancelled, the caller may hear a clipped fragment. Disable with `turnTaking.speculative: false`.
+- **Heuristics, not models.** The backchannel list (EN/ES) and `detectLang` are small word lists. Replace `classify` for anything serious.
+- **Providers are not tested in CI.** Message shapes follow the vendors' docs at the time of writing and can drift.
+- **Single process, in-memory.** No reconnect, no resumption, no tenancy, persistence or metering.
+
+## Next
+
+[Assemble it with the other packages around your own agent](/guides/assemble/).

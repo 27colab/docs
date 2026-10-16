@@ -1,0 +1,116 @@
+---
+title: "instagram-dm"
+description: "Dependency-free TypeScript building blocks for Instagram DM bots on Instagram API with Instagram Login: webhook verification, typed events, OAuth, a window-aware Send API client and a fake Graph API."
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+import hook from '../../../../samples/src/instagram-webhook.ts?raw';
+import fake from '../../../../samples/src/instagram-fake.ts?raw';
+import fakeOut from '../../../../samples/out/instagram-fake.txt?raw';
+
+<p class="source-links">Package <code>@27colab/instagram-dm</code> · <a href="https://github.com/27colab/instagram-dm">Source on GitHub</a> · MIT · Node 20+ · ESM · zero runtime dependencies</p>
+
+Small building blocks for Instagram DM bots, built on Meta's **Instagram API with Instagram Login**. It covers the plumbing, not the product: raw-body HMAC checks, typed event parsing, OAuth and token refresh, a Send API client that respects the 24-hour window, and a fake Graph API so you can test all of it without touching Meta. It contains no LLM, no prompts, no storage and no framework; you plug a `ConversationHandler` into it.
+
+<Aside type="caution" title="Not for you if…">
+- You want a chatbot framework, a hosted service or an official Meta SDK. This is none of those and is not affiliated with or endorsed by Meta.
+- You expect it to get your app approved. **This project has not been approved by Meta for anything and makes no claim of review status.** App Review is yours to obtain.
+- You plan to drive an account with unofficial or reverse-engineered APIs. Don't; it risks the business's account.
+</Aside>
+
+The package was extracted from a private multi-tenant product (tenancy, prompts and anything vertical were left behind). It has been exercised against its own test suite and a fake Graph API; the Meta-facing endpoints and behaviors it encodes come from Meta's public docs and manual testing, and Meta can change them. Re-check the current docs.
+
+## Install
+
+```sh
+npm install @27colab/instagram-dm
+```
+
+## Bring your own keys
+
+| You supply | Used for |
+|---|---|
+| Meta app ID and **App Secret** | Webhook signature checks, OAuth |
+| A **verify token** you choose | The webhook subscription handshake |
+| A per-account long-lived access token | The Send API (you store it; the package never persists anything) |
+
+Meta setup, in order:
+
+1. Create an app at developers.facebook.com, type **Business**. Note the App ID and App Secret.
+2. Add the **Instagram** product and open “API setup with Instagram login”.
+3. Add the OAuth redirect URI you will use for `buildAuthorizeUrl` / `exchangeCode`.
+4. Under Webhooks, set the callback URL to your handler and the verify token to your `verifyToken`; subscribe to the **`messages`** field.
+5. Connect an account through your OAuth flow, then call `subscribeToWebhooks`. With Instagram Login the app-level callback alone delivers nothing; each account must be subscribed individually.
+6. Default permissions requested: `instagram_business_basic`, `instagram_business_manage_messages`.
+
+While your app is in **development mode** you can only message accounts that have a role on the app (add them as Instagram Testers and accept the invite). Serving arbitrary businesses requires App Review for Advanced Access to those permissions and, typically, business verification.
+
+## Quickstart
+
+**Needs keys** to run for real (typechecked here).
+
+<Code code={hook} lang="ts" title="samples/src/instagram-webhook.ts" />
+
+For Fastify or Express, pass the **raw** body, not re-serialised JSON:
+
+```ts
+// Express: app.post('/hook', express.raw({ type: '*/*' }), async (req, res) => {
+const r = await webhook.handle({ method: req.method, query: req.query, headers: req.headers, rawBody: req.body });
+res.status(r.status).set(r.headers).send(r.body);
+```
+
+## Run it without keys
+
+The fake Graph API validates tokens, enforces the 24-hour window and can inject failures. This sample sends a signed webhook through the real handler, replays the same bytes, then tampers with the body.
+
+<Code code={fake} lang="ts" title="samples/src/instagram-fake.ts" />
+
+<Code code={fakeOut} lang="text" frame="terminal" title="output" />
+
+The redelivery is acknowledged but not answered twice, and the tampered body is rejected with 401 before your handler runs.
+
+## API overview
+
+| Area | Exports |
+|---|---|
+| Webhook security | `verifySignature`, `verifyChallenge`, `signBody`, `InMemoryDedupe` / `DedupeStore` |
+| Events | `parseWebhook` → `message` (text, attachments, story reply, reply-to), `echo`, `read`, `delivery`, `reaction`, `postback` |
+| Windows | `evaluateWindow`, `WindowTracker`; 24-hour standard and 7-day `HUMAN_AGENT` rules |
+| OAuth | `buildAuthorizeUrl`, `signState` / `verifyState`, `exchangeCode`, `exchangeLongLived`, `refreshLongLived`, `shouldRefresh`, `subscribeToWebhooks`, `fetchProfile` |
+| Send API | `InstagramClient.sendText` (chunking, window guard, retry), `sendAction`, `InstagramApiError`, `WindowClosedError` |
+| Handler | `createWebhookHandler` (`handle` plus a Web `fetch` adapter), `ConversationHandler` |
+| Testing | `@27colab/instagram-dm/testing`: `FakeGraphApi`, `textEvent` |
+
+### What the code does for you
+
+- **Signature:** constant-time check of `X-Hub-Signature-256` over the raw bytes. Invalid → 401; your code never runs.
+- **Replay:** an HMAC cannot tell a fresh delivery from a redelivered one, so message ids are deduped (in memory by default; supply a shared `DedupeStore` for multiple instances).
+- **Echo loops:** messages your own account sent arrive as `echo` events and never reach `onMessage`.
+- **Window:** the client can refuse to send after 24 hours (`WindowClosedError`) before Meta does. `humanAgent: true` uses the 7-day `HUMAN_AGENT` tag, which is for humans replying, not bots, and needs that feature approved for your app.
+- **Retry:** network errors, 5xx and throttling back off exponentially and honor `Retry-After`. Client errors fail immediately. A retried send can duplicate a DM if the first attempt reached Meta; set `retry: { maxRetries: 0 }` for at-most-once.
+- **Handler errors:** logged via `onError` and still answered 200 so Meta does not retry-storm you.
+- **Serverless:** pass `waitUntil` to reply 200 immediately and process in the background.
+
+### Token refresh
+
+Long-lived tokens last about 60 days. Refresh needs a token at least 24 hours old that has not expired; an expired token requires the user to re-authorize. Run this from a daily job:
+
+```ts
+if (shouldRefresh({ expiresAt: row.expiresAt })) {
+  const fresh = await refreshLongLived(oauthCfg, row.token);
+  await save(fresh.accessToken, fresh.expiresAt);
+}
+```
+
+## If nothing arrives
+
+- The account is not subscribed (step 5), or the `messages` field is not toggled on in the dashboard.
+- The account has “connected tools” access to messages switched off in Instagram's message controls.
+- Your app is in development mode and the sender has no role on it.
+- Wrong `appSecret` (every event 401s) or unset `verifyToken` (the handshake 403s).
+
+## Limits and rules you still own
+
+- Only reply to people who messaged you, inside the window. Disclose automation where Meta's terms or local law require it.
+- Delivery of the real endpoints is not tested in CI; the fake imitates only what this package uses.
+- Dedupe is in-memory by default and tokens are never stored by the package.

@@ -1,0 +1,100 @@
+---
+title: "quickbooks-online-kit"
+description: "A dependency-free TypeScript toolkit for QuickBooks Online: OAuth2 with refresh-token rotation, pluggable token storage, a typed REST client for common operations, an audit log and optional Next.js and React pieces."
+---
+
+import { Aside, Code } from '@astrojs/starlight/components';
+import fake from '../../../../samples/src/qbo-fake.ts?raw';
+import fakeOut from '../../../../samples/out/qbo-fake.txt?raw';
+import setup from '../../../../samples/src/qbo-setup.ts?raw';
+
+<p class="source-links">Package <code>@27colab/quickbooks-online-kit</code> · <a href="https://github.com/27colab/quickbooks-online-kit">Source on GitHub</a> · MIT · Node 20+ · ESM · zero runtime dependencies (<code>react</code> optional peer for <code>/react</code>)</p>
+
+<Aside type="caution" title="Status: v0.1 reference implementation">
+Extracted and rewritten from an internal integration and covered by tests against an in-process fake QuickBooks server. It has **not** been run against a live production QuickBooks company by anyone other than its author, and nothing here claims it is hardened for that. Read the code, run it against an Intuit sandbox and judge for yourself. Not affiliated with or endorsed by Intuit.
+</Aside>
+
+<Aside type="caution" title="Not for you if…">
+- You need the long tail of QBO entities, reports, attachments, batch or change data capture. Use `node-quickbooks` or call `client.request()` for what is missing. (`node-quickbooks` is not abandoned; the package README explains why this kit replaces it for one specific use case.)
+- You need the Payments API or webhooks. Accounting scope only.
+- You need one instance to serve many companies out of the box. It is one connection per `createQuickBooks()` instance; create one per tenant with a per-tenant store key.
+</Aside>
+
+## What is in the box
+
+| Piece | What it does |
+|---|---|
+| `createQuickBooks()` | Wires everything from one config object |
+| OAuth | Authorize URL, callback parsing, code exchange, refresh, revoke; signed `state` for CSRF protection; realm id from the callback |
+| `TokenStore` | Tiny `get/set/delete` interface. `MemoryTokenStore`, `FileTokenStore` (atomic, 0600), `SqliteTokenStore` (any `better-sqlite3` / `node:sqlite`-shaped handle) |
+| `TokenManager` | Single-flight refresh, rotation persisted before use, adopts tokens another process already rotated, optional cross-process `lock` hook |
+| `QboClient` | Find-or-create customer, sparse update, items and price map (paginated), estimate, estimate → invoice (with a double-invoice guard), sales receipt, record payment, raw `request()` / `query()` |
+| Errors | `QboError` with the parsed `Fault`, `QboReconnectRequiredError`, `QboNotConnectedError` |
+| Audit | `AuditLog` interface, memory and JSONL implementations, `summarizeHealth()` |
+| `/next` | Web-standard `Request`/`Response` route handlers: connect, callback, status, test, disconnect, audit |
+| `/react` | `<QboConnectionStatus />` and the presentational `<QboConnectionStatusView />` |
+| `/testing` | `startFakeQbo()`: an in-process fake of Intuit's OAuth and the REST endpoints above |
+
+## Install
+
+```sh
+npm install @27colab/quickbooks-online-kit
+```
+
+## Bring your own keys
+
+1. Sign in at developer.intuit.com and create an app with the **QuickBooks Online and Payments** scope `com.intuit.quickbooks.accounting`.
+2. Under *Keys & credentials → Development*, copy the **Client ID** and **Client secret**.
+3. Add a **Redirect URI** that exactly matches the one you pass to the kit, such as `http://localhost:3000/api/quickbooks/callback`.
+4. A sandbox company is created for you under *Sandbox*. Intuit's production keys require completing its app assessment, which is outside this library.
+
+Anything that is not exactly `production` / `prod` resolves to **sandbox**. Stored tokens remember the environment they were issued for and are ignored if you switch, so sandbox tokens are never sent to the other environment.
+
+## Run it without keys
+
+This sample points the kit at the in-process fake, plays the consent screen, then creates a customer and an estimate, converts it to an invoice, records a payment, and forces a server-side token expiry to show the single refresh-and-retry.
+
+<Code code={fake} lang="ts" title="samples/src/qbo-fake.ts" />
+
+<Code code={fakeOut} lang="text" frame="terminal" title="output" />
+
+The second conversion fails with `ALREADY_INVOICED`, which is the double-invoice guard.
+
+## Configure for a sandbox
+
+**Needs keys.** Typechecked, not executed. This also mounts the Next.js route handlers (`authorize` is mandatory on purpose: these endpoints can connect, disconnect and read accounting data).
+
+<Code code={setup} lang="ts" title="samples/src/qbo-setup.ts" />
+
+| Route | Method | Notes |
+|---|---|---|
+| `/connect` | GET | Redirects to Intuit's consent screen |
+| `/callback` | GET | Protected by the signed `state`, not by `authorize` |
+| `/status` | GET | Offline: reads the store only |
+| `/test` | POST | Live `CompanyInfo` call (refreshes tokens if needed) |
+| `/disconnect` | POST | Revokes at Intuit (best effort) and deletes local tokens |
+| `/audit` | GET | Health summary and recent audit entries |
+
+POSTs also reject a cross-origin `Origin` header, and the handlers never return tokens.
+
+## API overview
+
+- **Customers:** `findOrCreateCustomer`, `findCustomerByEmail`, `findCustomerByDisplayName`; `findOrCreateCustomer` also sparse-updates an existing customer.
+- **Items:** `buildPriceMap()` returns `{ 'Name': { id, unitPrice, … } }`; `findItemByName`.
+- **Documents:** `createEstimate`, `convertEstimateToInvoice` (throws `ALREADY_INVOICED` on repeat), `createSalesReceipt`, `recordPayment`.
+- **Escape hatches:** `request()`, `query()` and `qboQuote()` for values interpolated into queries.
+- **Kit methods:** `connectUrl()`, `handleCallback()`, `status()`, `testConnection()`, `disconnect()`, `health()`.
+
+## Design notes
+
+- **Token refresh.** Intuit rotates refresh tokens, so two concurrent refreshes with the same old token would race. The kit coalesces callers in one process, writes new tokens to the store before returning them, and if Intuit answers `invalid_grant` while the store already holds a newer token it adopts that. For multiple instances add the `lock` option (a database advisory lock, Redis lock, …).
+- **401 handling.** One forced refresh, one retry. 429 and GET 5xx retry with `Retry-After` and backoff. POSTs are never blindly retried on 5xx, and every create carries a `requestid`.
+- **Audit log.** Every client call, refresh and connection action records action, outcome, duration, status, `intuit_tid` and the QBO ids touched. Tokens and request bodies are never recorded; keep PII and secrets out of your own `metadata`.
+- **Token storage.** Tokens are stored as plain JSON. Use disk or volume encryption, or wrap a store with your own encrypting adapter. Never commit the token file.
+
+## Limits
+
+- Accounting scope only: no Payments API, webhooks, reports, attachments, CDC or batch.
+- The fake supports only what this kit uses (a minimal `select * from X where field = 'v'` dialect; create, sparse update and read for six entity types). Passing against it does not prove behavior against the real API.
+- Fixtures and examples are invented. The minor version is pinned to 75; check Intuit's changelog before relying on newer fields.
+- Issues are triaged occasionally.

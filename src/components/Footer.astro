@@ -1,0 +1,12 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro';
+import { siteConfig } from '../../site.config.mjs';
+---
+
+<Default {...Astro.props}><slot /></Default>
+<p class="site-footer">
+  Built by {siteConfig.author} · <a href={siteConfig.companyUrl}>{siteConfig.company}</a>
+  {siteConfig.portfolioUrl && <> · <a href={siteConfig.portfolioUrl}>Portfolio</a></>}
+  · MIT-licensed packages ·
+  <a href={siteConfig.githubOrg}>GitHub</a>
+</p>
