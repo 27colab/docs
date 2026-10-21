@@ -15,7 +15,7 @@ A small, tested TypeScript reference for the turn-taking part of a real-time pho
 <Aside type="caution" title="Not for you if…">
 - You want a complete voice-agent platform. Vapi, Retell, LiveKit Agents and Pipecat already ship barge-in; this is a compact implementation of the few mechanisms that are easy to get subtly wrong, not a replacement.
 - You need latency or quality numbers. Nothing here has been benchmarked, and the offline fakes answer instantly.
-- You need multi-tenant routing, persistence, metering, prompt assembly or telephony provisioning. None of that is included.
+- You need multi-tenant routing, persistence, billing, prompt assembly or telephony provisioning. None of that is included; per-call usage totals are, for you to price.
 </Aside>
 
 ## What it does
@@ -27,7 +27,10 @@ A small, tested TypeScript reference for the turn-taking part of a real-time pho
 | **History rewrite on barge-in** | The model's next prompt shows `"We have openings Monday [interrupted]"`, not a sentence it never finished saying. |
 | **Backchannel vs interruption** | “uh-huh” and “sí claro” do not cut the agent off; a real utterance does. The classifier is pluggable. |
 | **Speculative turn start** | Start the LLM on Deepgram Flux `EagerEndOfTurn`; cancel on `TurnResumed` (restoring history); keep the reply if the final transcript matches. |
-| **Latency timeline** | Per-call events and per-turn distributions (p50/p90) in the `CallRecord`. |
+| **Tool fillers** | A tool call takes a second or three. A filler (“One moment.”) plays the instant the model starts the call, through the same interruptible playback path, and never lands in chat history. Skipped when the model already said its own preamble. |
+| **Prompt caching** | A phone call resends the system prompt and the whole conversation every turn. The Anthropic adapter caches both by default; system blocks with a `cacheBoundary` keep per-call facts (the time) out of the cached prefix. |
+| **Latency timeline and usage** | Per-call events and per-turn distributions (p50/p90) in the `CallRecord`, plus totals for input, output, cache-read and cache-write tokens and TTS characters. |
+| **Config warnings** | `hooks.onWarning` flags setups that fail silently, such as a bilingual line on an English-only speech model. |
 | **Twilio Media Streams transport** | `start`/`media`/`mark`/`stop` in, `media`/`mark`/`clear` out, over a structural socket type (no `ws` import in core). |
 
 ## Install
@@ -67,6 +70,8 @@ The assistant turn is stored as `"We have openings Monday morning, [interrupted]
 
 <Code code={live} lang="ts" title="samples/src/voice-live.ts" />
 
+The `system` function returns blocks: everything up to the block marked `cacheBoundary` is cached, and the current time after it changes every turn without invalidating the cache. The filler plays while `check_hours` runs.
+
 Point a Twilio number at TwiML that streams to this server (the URL must be `wss://`; use a tunnel for local development):
 
 ```xml
@@ -81,13 +86,14 @@ To pass the caller's number to your tools, add `<Parameter name="from" value="{{
 
 - `createCallSession(deps, info, hooks, config)` returns a session with `start()` and `end(reason)`. `deps` is `{ transport, sttFactory, ttsFactory, chat }`; `hooks.onEnd(record, reason)` receives a `CallRecord` (transcript, stats, events).
 - `TwilioMediaTransport(ws)` with `await transport.started` giving `streamSid`, `callSid`, `customParameters`.
-- `CallSessionConfig`: `languages`, `languagePolicy` (`'fixed'` or `'follow-caller'`), `greeting`, `system` (string or function of language), `llm`, `tools` and `executeTool` (a tool result may set `endCall: true`), `voice`, `stt`, `maxCallSeconds`, `turnTaking` (`speculative`, `bargeInMinWords`, `classify`, `playbackPaddingMs`).
+- `CallSessionConfig`: `languages`, `languagePolicy` (`'fixed'` or `'follow-caller'`), `greeting`, `system` (a string, `SystemBlock[]` with `cacheBoundary`, or a function of language and time returning either), `llm`, `tools` and `executeTool` (a tool result may set `endCall: true`), `fillers` (`{ toolName: "One moment." }` or per language), `voice`, `stt`, `maxCallSeconds`, `turnTaking` (`speculative`, `bargeInMinWords`, `classify`, `playbackPaddingMs`).
+- Hooks: `onEnd(record, reason)` (`record.stats.usage` holds the token and character totals), `onError(err)`, `onWarning(message)`.
 
 **Interfaces** (all in `interfaces.ts`): `MediaTransport`, `SttFactory`/`SttStream`, `TtsFactory`/`TtsStream`, `ChatEngine`. Implement them to swap any provider.
 
 **Building blocks, usable on their own:** `splitAtPlayedMs`, `computeSpokenText`, `AlignmentAccumulator`, `PlaybackTracker`, `rewriteOnBargeIn`, `classifyUtterance`, `detectLang`, `CallTimeline`, `selectVoice`.
 
-**Adapters** (`@27colab/voice-engine/providers`): `createDeepgramFluxFactory`, `createElevenLabsFactory`, `createAnthropicChat`.
+**Adapters** (`@27colab/voice-engine/providers`): `createDeepgramFluxFactory`, `createElevenLabsFactory`, `createAnthropicChat(apiKey, { cacheSystem, cacheHistory })` (both default on), and `buildAnthropicRequest` to see the exact request it sends.
 
 **Fakes** (`@27colab/voice-engine/testing`): `FakeTransport` (`confirmPlayedMs(ms)`, Twilio-style mark echo on `clear`), `FakeStt` (`emitEagerEndOfTurn`, `emitTurnResumed`, `emitEndOfTurn`), `FakeTts` (deterministic alignment), `FakeChat` (scripted turns and tool calls, optional `gate` to simulate latency).
 
@@ -100,7 +106,8 @@ To pass the caller's number to your tools, add `<Parameter name="from" value="{{
 - **Speculation trade-off.** A speculative reply can begin speaking before the final end-of-turn; if cancelled, the caller may hear a clipped fragment. Disable with `turnTaking.speculative: false`.
 - **Heuristics, not models.** The backchannel list (EN/ES) and `detectLang` are small word lists. Replace `classify` for anything serious.
 - **Providers are not tested in CI.** Message shapes follow the vendors' docs at the time of writing and can drift.
-- **Single process, in-memory.** No reconnect, no resumption, no tenancy, persistence or metering.
+- **Caching has a floor.** Each model only caches a prefix above its minimum (512 to 4,096 tokens depending on the model; 4,096 on Claude Haiku 4.5). Below it nothing is cached and `usage.llmCacheReadTokens` stays 0. History caching usually crosses the floor from the second turn.
+- **Single process, in-memory.** No reconnect, no resumption, no tenancy, persistence or billing.
 
 ## Next
 

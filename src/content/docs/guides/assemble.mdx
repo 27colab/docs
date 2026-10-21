@@ -22,7 +22,7 @@ This is a worked example of wiring, not a product, a template you should deploy 
 
 | Layer | You provide | A package provides |
 |---|---|---|
-| Phone | Twilio number, Deepgram, ElevenLabs and Anthropic accounts and keys | `voice-engine`: Media Streams transport, mark-confirmed playback, barge-in history rewrite, speculative turns |
+| Phone | Twilio number, Deepgram, ElevenLabs and Anthropic accounts and keys | `voice-engine`: Media Streams transport, mark-confirmed playback, barge-in history rewrite, speculative turns, tool fillers, prompt caching, usage totals |
 | SMS | An SMS provider call, a database for consent | `sms-consent`: keyword handling, consent ledger, `sendGuarded` |
 | Instagram | A Meta app, App Review where needed, token storage | `instagram-dm`: signature checks, dedupe, window-aware Send API client |
 | Email | A Resend key and verified domain | `email-kit`: retry, idempotency, suppression, “email me this” |
